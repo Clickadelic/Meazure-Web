@@ -78,7 +78,6 @@ function addGlobalStyles() {
       bottom: 0;
       cursor: se-resize;
       background: #1677ff;
-      border-radius: 3px;
       z-index: 5;
     }
     #meazure-overlay .snap-line {
@@ -98,13 +97,12 @@ function addGlobalStyles() {
     }
     #meazure-overlay .ruler-label {
       position: absolute;
-      bottom: 2px;
-      right: 12px;
-      color: #1677ff;
+      bottom: 5px;
+      right: 30px;
+      color: #000;
       font-size: 12px;
 	  background: #fff;
 	  border: 1px solid #000;
-	  border-radius: 3px;
 	  padding: 2px;
       user-select: none;
       pointer-events: none;
@@ -119,8 +117,8 @@ function addGlobalStyles() {
 		left: 0;
 		cursor: nwse-resize;
 		background: #1677ff;
-		border-radius: 3px;
 		z-index: 5;
+		opacity: 0.5;
 	}
   `
 	document.head.appendChild(style)

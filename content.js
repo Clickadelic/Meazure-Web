@@ -1,5 +1,3 @@
-// content.js
-
 let overlay = null
 let isMeasuring = false
 let startX = null
@@ -45,7 +43,7 @@ function addGlobalStyles() {
 	style.textContent = `
     #meazure-overlay .ruler-box {
       position: absolute;
-      border: 2px solid #aaa;
+      border: 1px dotted limegreen;
       background: rgba(22, 119, 255, 0.15);
       box-sizing: border-box;
       user-select: none;
@@ -98,12 +96,45 @@ function addGlobalStyles() {
       height: 1px;
       width: 100vw;
     }
+    #meazure-overlay .ruler-label {
+      position: absolute;
+      bottom: 2px;
+      right: 12px;
+      color: #1677ff;
+      font-size: 12px;
+	  background: #fff;
+	  border: 1px solid #000;
+	  border-radius: 3px;
+	  padding: 2px;
+      user-select: none;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+	#meazure-overlay .ruler-resize-handle-top-left {
+		position: absolute;
+		width: 15px;
+		height: 15px;
+		top: 0;
+		left: 0;
+		cursor: nwse-resize;
+		background: #1677ff;
+		border-radius: 3px;
+		z-index: 5;
+	}
   `
 	document.head.appendChild(style)
 }
 
 function startMeasure(e) {
 	if (e.target.classList.contains("ruler-box") || e.target.classList.contains("ruler-close") || e.target.classList.contains("ruler-resize-handle") || e.target.classList.contains("snap-line")) return
+
+	// Wenn schon ein Rechteck existiert, löschen wir es (inkl. Snap-Linien)
+	if (selectedRuler) {
+		selectedRuler.remove()
+		selectedRuler = null
+		clearSnapLines()
+	}
 
 	isMeasuring = true
 	const pos = getSnappedPosition(e.clientX, e.clientY)
@@ -183,14 +214,20 @@ function endMeasure(e) {
 	})
 	rulerLine.appendChild(closeBtn)
 
-	// Resize-Handle
-	const handle = document.createElement("div")
-	handle.className = "ruler-resize-handle"
-	rulerLine.appendChild(handle)
+	// Resize-Handle unten rechts (bestehend)
+	const handleBR = document.createElement("div")
+	handleBR.className = "ruler-resize-handle"
+	rulerLine.appendChild(handleBR)
 
-	handle.addEventListener("mousedown", function (ev) {
+	// Resize-Handle oben links (neu)
+	const handleTL = document.createElement("div")
+	handleTL.className = "ruler-resize-handle-top-left"
+	rulerLine.appendChild(handleTL)
+
+	// Resize unten rechts (bestehend)
+	handleBR.addEventListener("mousedown", function (ev) {
 		ev.stopPropagation()
-		const box = handle.parentElement
+		const box = handleBR.parentElement
 		const startWidth = box.offsetWidth
 		const startHeight = box.offsetHeight
 		const startX = ev.clientX
@@ -201,6 +238,48 @@ function endMeasure(e) {
 			const newHeight = Math.max(5, startHeight + e.clientY - startY)
 			box.style.width = newWidth + "px"
 			box.style.height = newHeight + "px"
+			updateRulerLabel(box)
+			updateSnapLines(box)
+		}
+
+		function stopResize() {
+			document.removeEventListener("mousemove", doResize)
+			document.removeEventListener("mouseup", stopResize)
+		}
+
+		document.addEventListener("mousemove", doResize)
+		document.addEventListener("mouseup", stopResize)
+	})
+
+	// Resize oben links (neu)
+	handleTL.addEventListener("mousedown", function (ev) {
+		ev.stopPropagation()
+		const box = handleTL.parentElement
+		const startWidth = box.offsetWidth
+		const startHeight = box.offsetHeight
+		const startX = ev.clientX
+		const startY = ev.clientY
+		const startLeft = box.offsetLeft
+		const startTop = box.offsetTop
+
+		function doResize(e) {
+			const deltaX = e.clientX - startX
+			const deltaY = e.clientY - startY
+
+			let newWidth = Math.max(5, startWidth - deltaX)
+			let newHeight = Math.max(5, startHeight - deltaY)
+			let newLeft = startLeft + deltaX
+			let newTop = startTop + deltaY
+
+			// Verhindern, dass Box nach rechts/unten "überläuft"
+			if (newWidth === 5) newLeft = startLeft + (startWidth - 5)
+			if (newHeight === 5) newTop = startTop + (startHeight - 5)
+
+			box.style.width = newWidth + "px"
+			box.style.height = newHeight + "px"
+			box.style.left = newLeft + "px"
+			box.style.top = newTop + "px"
+
 			updateRulerLabel(box)
 			updateSnapLines(box)
 		}
@@ -256,7 +335,8 @@ function highlightSelectedRuler() {
 
 // Snap-Position (mit Snap-Distanz)
 function getSnappedPosition(x, y) {
-	// Hier kannst du die Logik erweitern, z.B. Snap an andere Rechtecke
+	// Hier kannst du die Logik erweitern, z.B. Snap an andere Rechtecke oder Bildschirmkanten
+	// Aktuell ohne echte Snapping-Logik, nur Rückgabe der Originalkoordinaten
 	return { x, y }
 }
 
@@ -274,7 +354,7 @@ function updateSnapLines(box) {
 	addSnapLine("horizontal", 0) // oben
 	addSnapLine("horizontal", window.innerHeight) // unten
 
-	// Beispiel: Snap-Linien an Box-Kanten (links, rechts, oben, unten)
+	// Snap-Linien an Box-Kanten (links, rechts, oben, unten)
 	addSnapLine("vertical", boxRect.left)
 	addSnapLine("vertical", boxRect.right)
 	addSnapLine("horizontal", boxRect.top)
@@ -306,6 +386,9 @@ function updateRulerLabel(box) {
 	if (!label) {
 		label = document.createElement("div")
 		label.className = "ruler-label"
+		label.style.display = "flex"
+		label.style.alignItems = "center"
+		label.style.justifyContent = "center"
 		label.style.position = "absolute"
 		label.style.bottom = "2px"
 		label.style.right = "5px"
@@ -313,6 +396,8 @@ function updateRulerLabel(box) {
 		label.style.fontSize = "12px"
 		label.style.fontWeight = "bold"
 		label.style.userSelect = "none"
+		label.style.pointerEvents = "none"
+		label.style.zIndex = "10"
 		box.appendChild(label)
 	}
 	label.textContent = `${box.offsetWidth}px × ${box.offsetHeight}px`
@@ -348,23 +433,26 @@ function onKeyDown(e) {
 			dx = step
 			break
 		default:
-			return // Keine Reaktion bei anderen Tasten
+			return
 	}
 
-	e.preventDefault()
+	const newX = selectedRuler.offsetLeft + dx
+	const newY = selectedRuler.offsetTop + dy
 
-	let newLeft = selectedRuler.offsetLeft + dx
-	let newTop = selectedRuler.offsetTop + dy
-
-	// Optional: Schnappen anwenden
-	const snapped = getSnappedPosition(newLeft, newTop)
-
-	selectedRuler.style.left = snapped.x + "px"
-	selectedRuler.style.top = snapped.y + "px"
-
-	updateRulerLabel(selectedRuler)
+	selectedRuler.style.left = newX + "px"
+	selectedRuler.style.top = newY + "px"
 	updateSnapLines(selectedRuler)
+	e.preventDefault()
 }
 
-// Initialisierung starten
-init()
+let isInitialized = false
+
+document.addEventListener("contextmenu", e => {
+	// Nur beim ersten Rechtsklick das Overlay initialisieren
+	if (!isInitialized) {
+		init()
+		isInitialized = true
+	}
+	// Optional: Hier kannst du das Overlay sichtbar machen,
+	// falls du es versteckt hast und es nur bei Rechtsklick zeigen willst.
+})

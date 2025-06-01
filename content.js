@@ -1,78 +1,370 @@
-let overlay, startX, startY, rulerLine
-let dragTarget = null
+// content.js
+
+let overlay = null
+let isMeasuring = false
+let startX = null
+let startY = null
+let rulerLine = null
+
+let snapDistance = 10 // Abstand für Snap
+let snapLines = []
+
+let selectedRuler = null
+
+let isDragging = false
 let dragOffsetX = 0
 let dragOffsetY = 0
 
-window.toggleRuler = function () {
-	if (overlay) {
-		overlay.remove()
-		overlay = null
-		return
-	}
-
+// Setup Overlay & CSS
+function init() {
 	overlay = document.createElement("div")
 	overlay.id = "meazure-overlay"
-	overlay.innerHTML = `<div id="meazure-crosshair"></div>`
+	Object.assign(overlay.style, {
+		position: "fixed",
+		top: 0,
+		left: 0,
+		width: "100vw",
+		height: "100vh",
+		zIndex: 9999999,
+		pointerEvents: "auto",
+		userSelect: "none"
+	})
 	document.body.appendChild(overlay)
 
-	document.addEventListener("mousemove", handleMouseMove)
-	document.addEventListener("mousedown", startMeasure)
-	document.addEventListener("mouseup", endMeasure)
+	addGlobalStyles()
+	overlay.addEventListener("mousedown", startMeasure)
+	overlay.addEventListener("mousemove", onMouseMove)
+	overlay.addEventListener("mouseup", onMouseUp)
 
-	document.addEventListener("mousedown", onDragStart)
+	// Tastatur-Events für Verschieben mit Pfeiltasten / WASD
+	window.addEventListener("keydown", onKeyDown)
 }
 
-function handleMouseMove(e) {
-	const cross = document.getElementById("meazure-crosshair")
-	cross.style.left = e.clientX + "px"
-	cross.style.top = e.clientY + "px"
-	cross.innerText = `X: ${e.clientX}, Y: ${e.clientY}`
-
-	if (rulerLine && startX != null && startY != null) {
-		rulerLine.style.width = Math.abs(e.clientX - startX) + "px"
-		rulerLine.style.height = Math.abs(e.clientY - startY) + "px"
-		rulerLine.style.left = Math.min(e.clientX, startX) + "px"
-		rulerLine.style.top = Math.min(e.clientY, startY) + "px"
-		rulerLine.innerText = `${Math.abs(e.clientX - startX)}px`
-	}
+function addGlobalStyles() {
+	const style = document.createElement("style")
+	style.textContent = `
+    #meazure-overlay .ruler-box {
+      position: absolute;
+      border: 2px solid #aaa;
+      background: rgba(22, 119, 255, 0.15);
+      box-sizing: border-box;
+      user-select: none;
+      cursor: move;
+    }
+    #meazure-overlay .ruler-box.selected {
+      border-color: #1677ff;
+      background: rgba(22, 119, 255, 0.3);
+    }
+    #meazure-overlay .ruler-close {
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      width: 20px;
+      height: 20px;
+      background: #1677ff;
+      color: white;
+      font-weight: bold;
+      border-radius: 50%;
+      font-size: 16px;
+      line-height: 20px;
+      text-align: center;
+      cursor: pointer;
+      user-select: none;
+      z-index: 10;
+    }
+    #meazure-overlay .ruler-resize-handle {
+      position: absolute;
+      width: 15px;
+      height: 15px;
+      right: 0;
+      bottom: 0;
+      cursor: se-resize;
+      background: #1677ff;
+      border-radius: 3px;
+      z-index: 5;
+    }
+    #meazure-overlay .snap-line {
+      position: absolute;
+      background: #1677ff;
+      opacity: 0.6;
+      pointer-events: none;
+      z-index: 10000000;
+    }
+    #meazure-overlay .snap-line.vertical {
+      width: 1px;
+      height: 100vh;
+    }
+    #meazure-overlay .snap-line.horizontal {
+      height: 1px;
+      width: 100vw;
+    }
+  `
+	document.head.appendChild(style)
 }
 
 function startMeasure(e) {
-	startX = e.clientX
-	startY = e.clientY
+	if (e.target.classList.contains("ruler-box") || e.target.classList.contains("ruler-close") || e.target.classList.contains("ruler-resize-handle") || e.target.classList.contains("snap-line")) return
+
+	isMeasuring = true
+	const pos = getSnappedPosition(e.clientX, e.clientY)
+	startX = pos.x
+	startY = pos.y
 
 	rulerLine = document.createElement("div")
 	rulerLine.className = "ruler-box"
 	overlay.appendChild(rulerLine)
 }
 
-function endMeasure() {
-	startX = startY = null
+function onMouseMove(e) {
+	if (isDragging && selectedRuler) {
+		const pos = getSnappedPosition(e.clientX - dragOffsetX, e.clientY - dragOffsetY)
+
+		selectedRuler.style.left = pos.x + "px"
+		selectedRuler.style.top = pos.y + "px"
+
+		updateRulerLabel(selectedRuler)
+		updateSnapLines(selectedRuler)
+		return
+	}
+
+	if (isMeasuring && rulerLine) {
+		const pos = getSnappedPosition(e.clientX, e.clientY)
+
+		const left = Math.min(pos.x, startX)
+		const top = Math.min(pos.y, startY)
+		const width = Math.abs(pos.x - startX)
+		const height = Math.abs(pos.y - startY)
+
+		rulerLine.style.left = left + "px"
+		rulerLine.style.top = top + "px"
+		rulerLine.style.width = width + "px"
+		rulerLine.style.height = height + "px"
+
+		updateRulerLabel(rulerLine)
+		updateSnapLines(rulerLine)
+	}
+}
+
+function onMouseUp(e) {
+	if (isDragging) {
+		isDragging = false
+		return
+	}
+	if (isMeasuring) {
+		endMeasure(e)
+	}
+}
+
+function endMeasure(e) {
+	if (!rulerLine) return
+
+	// Minimum Größe abfragen (damit kein Mini-Kästchen)
+	const w = rulerLine.offsetWidth
+	const h = rulerLine.offsetHeight
+	if (w < 5 || h < 5) {
+		rulerLine.remove()
+		rulerLine = null
+		isMeasuring = false
+		clearSnapLines()
+		return
+	}
+
+	// Close-Button
+	const closeBtn = document.createElement("div")
+	closeBtn.className = "ruler-close"
+	closeBtn.innerHTML = "×"
+	closeBtn.addEventListener("click", ev => {
+		ev.stopPropagation()
+		if (rulerLine === selectedRuler) {
+			selectedRuler = null
+			clearSnapLines()
+		}
+		closeBtn.parentElement?.remove()
+	})
+	rulerLine.appendChild(closeBtn)
+
+	// Resize-Handle
+	const handle = document.createElement("div")
+	handle.className = "ruler-resize-handle"
+	rulerLine.appendChild(handle)
+
+	handle.addEventListener("mousedown", function (ev) {
+		ev.stopPropagation()
+		const box = handle.parentElement
+		const startWidth = box.offsetWidth
+		const startHeight = box.offsetHeight
+		const startX = ev.clientX
+		const startY = ev.clientY
+
+		function doResize(e) {
+			const newWidth = Math.max(5, startWidth + e.clientX - startX)
+			const newHeight = Math.max(5, startHeight + e.clientY - startY)
+			box.style.width = newWidth + "px"
+			box.style.height = newHeight + "px"
+			updateRulerLabel(box)
+			updateSnapLines(box)
+		}
+
+		function stopResize() {
+			document.removeEventListener("mousemove", doResize)
+			document.removeEventListener("mouseup", stopResize)
+		}
+
+		document.addEventListener("mousemove", doResize)
+		document.addEventListener("mouseup", stopResize)
+	})
+
+	// Drag aktivieren
+	enableDragForBox(rulerLine)
+
+	// Nach Erstellen auswählen
+	selectedRuler = rulerLine
+	highlightSelectedRuler()
+
+	isMeasuring = false
 	rulerLine = null
+	startX = null
+	startY = null
 }
 
-function onDragStart(e) {
-	if (!e.target.classList.contains("ruler-box")) return
+// Funktion zum Draggen
+function enableDragForBox(box) {
+	box.addEventListener("mousedown", ev => {
+		if (ev.target.classList.contains("ruler-close") || ev.target.classList.contains("ruler-resize-handle")) return
 
-	dragTarget = e.target
-	const rect = dragTarget.getBoundingClientRect()
-	dragOffsetX = e.clientX - rect.left
-	dragOffsetY = e.clientY - rect.top
+		isDragging = true
+		selectedRuler = box
+		highlightSelectedRuler()
 
-	document.addEventListener("mousemove", onDrag)
-	document.addEventListener("mouseup", onDragEnd)
-	// document.removeEventListener("mousedown", onDragStart) // NEU
+		dragOffsetX = ev.clientX - box.offsetLeft
+		dragOffsetY = ev.clientY - box.offsetTop
+
+		ev.preventDefault()
+	})
 }
 
-// function onDrag(e) {
-// 	if (!dragTarget) return
+function highlightSelectedRuler() {
+	const allBoxes = overlay.querySelectorAll(".ruler-box")
+	allBoxes.forEach(b => b.classList.remove("selected"))
+	if (selectedRuler) {
+		selectedRuler.classList.add("selected")
+		updateSnapLines(selectedRuler)
+	} else {
+		clearSnapLines()
+	}
+}
 
-// 	dragTarget.style.left = e.clientX - dragOffsetX + "px"
-// 	dragTarget.style.top = e.clientY - dragOffsetY + "px"
-// }
+// Snap-Position (mit Snap-Distanz)
+function getSnappedPosition(x, y) {
+	// Hier kannst du die Logik erweitern, z.B. Snap an andere Rechtecke
+	return { x, y }
+}
 
-// function onDragEnd() {
-// 	document.removeEventListener("mousemove", onDrag)
-// 	document.removeEventListener("mouseup", onDragEnd)
-// 	dragTarget = null
-// }
+// Snap-Linien anzeigen
+function updateSnapLines(box) {
+	clearSnapLines()
+
+	if (!box) return
+
+	const boxRect = box.getBoundingClientRect()
+
+	// Beispiel: Snap-Linien an Bildschirmkanten
+	addSnapLine("vertical", 0) // links
+	addSnapLine("vertical", window.innerWidth) // rechts
+	addSnapLine("horizontal", 0) // oben
+	addSnapLine("horizontal", window.innerHeight) // unten
+
+	// Beispiel: Snap-Linien an Box-Kanten (links, rechts, oben, unten)
+	addSnapLine("vertical", boxRect.left)
+	addSnapLine("vertical", boxRect.right)
+	addSnapLine("horizontal", boxRect.top)
+	addSnapLine("horizontal", boxRect.bottom)
+}
+
+function addSnapLine(type, pos) {
+	const line = document.createElement("div")
+	line.className = "snap-line " + type
+	if (type === "vertical") {
+		line.style.left = pos + "px"
+		line.style.top = 0
+	} else {
+		line.style.top = pos + "px"
+		line.style.left = 0
+	}
+	overlay.appendChild(line)
+	snapLines.push(line)
+}
+
+function clearSnapLines() {
+	snapLines.forEach(line => line.remove())
+	snapLines = []
+}
+
+// Label auf der Box mit Breite x Höhe anzeigen
+function updateRulerLabel(box) {
+	let label = box.querySelector(".ruler-label")
+	if (!label) {
+		label = document.createElement("div")
+		label.className = "ruler-label"
+		label.style.position = "absolute"
+		label.style.bottom = "2px"
+		label.style.right = "5px"
+		label.style.color = "#1677ff"
+		label.style.fontSize = "12px"
+		label.style.fontWeight = "bold"
+		label.style.userSelect = "none"
+		box.appendChild(label)
+	}
+	label.textContent = `${box.offsetWidth}px × ${box.offsetHeight}px`
+}
+
+// Tastatur-Steuerung für Verschieben mit Pfeiltasten oder WASD
+function onKeyDown(e) {
+	if (!selectedRuler) return
+
+	let dx = 0,
+		dy = 0
+	const step = e.shiftKey ? 10 : 1
+
+	switch (e.key) {
+		case "ArrowUp":
+		case "w":
+		case "W":
+			dy = -step
+			break
+		case "ArrowDown":
+		case "s":
+		case "S":
+			dy = step
+			break
+		case "ArrowLeft":
+		case "a":
+		case "A":
+			dx = -step
+			break
+		case "ArrowRight":
+		case "d":
+		case "D":
+			dx = step
+			break
+		default:
+			return // Keine Reaktion bei anderen Tasten
+	}
+
+	e.preventDefault()
+
+	let newLeft = selectedRuler.offsetLeft + dx
+	let newTop = selectedRuler.offsetTop + dy
+
+	// Optional: Schnappen anwenden
+	const snapped = getSnappedPosition(newLeft, newTop)
+
+	selectedRuler.style.left = snapped.x + "px"
+	selectedRuler.style.top = snapped.y + "px"
+
+	updateRulerLabel(selectedRuler)
+	updateSnapLines(selectedRuler)
+}
+
+// Initialisierung starten
+init()

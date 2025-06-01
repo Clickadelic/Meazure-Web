@@ -443,14 +443,16 @@ function onKeyDown(e) {
 	e.preventDefault()
 }
 
-let isInitialized = false
+init()
 
-document.addEventListener("contextmenu", e => {
-	// Nur beim ersten Rechtsklick das Overlay initialisieren
-	if (!isInitialized) {
-		init()
-		isInitialized = true
-	}
-	// Optional: Hier kannst du das Overlay sichtbar machen,
-	// falls du es versteckt hast und es nur bei Rechtsklick zeigen willst.
-})
+// let isInitialized = false
+
+// document.addEventListener("contextmenu", e => {
+// 	// Nur beim ersten Rechtsklick das Overlay initialisieren
+// 	if (!isInitialized) {
+// 		init()
+// 		isInitialized = true
+// 	}
+// 	// Optional: Hier kannst du das Overlay sichtbar machen,
+// 	// falls du es versteckt hast und es nur bei Rechtsklick zeigen willst.
+// })
